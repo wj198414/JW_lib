@@ -3,6 +3,7 @@
 RossiterMcLaughlinEffect is a class to calculate line profiles (LPs) during an eclipse of a star by a planet (dark) or a companion star (self luminous)
 
 To get LPs as a function of time:
+
 import JW_lib
 
 lsf = JW_lib.readSpec("tmp.dat.atm") # read in line spread function (LSF) of the instrument 
