@@ -2610,8 +2610,8 @@ class RossiterMcLaughlinEffect():
         mu = np.cos(np.arcsin(np.abs(v_mean) / self.vrot))
         return(1 - u1 * (1 - mu) - u2 * (1 - mu)**2)
 
-    def calcLPSeries(self, flag_plot=True, flag_save=True):
-        t_arr, v_arr = self.calcRMSeries(flag_video=False, flag_plot=flag_plot)      
+    def calcLPSeries(self, t_arr=None, flag_plot=True, flag_save=True):
+        t_arr, v_arr = self.calcRMSeries(t_arr=t_arr, flag_video=False, flag_plot=flag_plot)   
         lp_arr = [] 
         for i in np.arange(len(t_arr)): 
             lp_rm = self.createRMLineProfile(t_arr[i], v_arr[i,0], v_arr[i,1], u1=self.u1, u2=self.u2, lambda_0=self.lambda0, flag_plot=False)
