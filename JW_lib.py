@@ -2136,7 +2136,7 @@ class Pynirspec_spec1D():
         return(spec_all_st)
 
 class RossiterMcLaughlinEffect():
-    def __init__(self, self_luminous=False, b=0.0, t0=4.0, vrot=10e3, oblqt=45.0, R=1.0, r=0.5, f12=0.8, vrot2=20e3, msini=1.0, P=1.0, Mtotal=1.0, e=0.3, om=60, tp=0.2, mass_ratio=0.01, u1=1.0, u2=0.0, lambda0=2.0, lsf=None):
+    def __init__(self, self_luminous=False, b=0.0, t0=4.0, vrot=10e3, oblqt=45.0, R=1.0, r=0.5, f12=0.8, vrot2=20e3, P=1.0, Mtotal=1.0, e=0.3, om=60, tp=0.2, mass_ratio=0.01, u1=1.0, u2=0.0, lambda0=2.0, lsf=None):
         self.b = b # impact parameter
         self.t0 = t0 # transit duration in hours
         self.vrot = vrot # primary rotational velocity in m/s
@@ -2147,7 +2147,7 @@ class RossiterMcLaughlinEffect():
         self.self_luminous = self_luminous # whether the secondary is self luminous, if True, then SB, if False, then planet. 
         self.f12 = f12 # flux ratio between primary and secondary out of eclipse
         self.vrot2 = vrot2 # rotational velocity of the secondary
-        self.msini=msini # companion mass in Jupiter mass
+        self.msini = Mtotal / (1.0 + (1.0 / mass_ratio)) / 0.0009543 # companion mass in Jupiter mass, 0.0009543 is jupiter mass in solar mass
         self.orbitalPeriod = P # orbital period in days
         self.mtotal = 1.0 # total mass in solar mass
         self.eccentricity = e # eccentricity
