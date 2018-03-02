@@ -198,6 +198,70 @@ class Spectrum():
         with open(file_name, "wb") as handle:
             pickle.dump(self, handle)
 
+    def removeOutliers(self, sigma_reject=7.0, sigma_clip=None, kernel_size=None, flag_plot=False):
+        if np.size(self.noise) > 1.0:
+            wav = self.wavelength
+            flx = self.flux
+            unc = self.noise
+            if sigma_clip is None:
+                sigma_clip = np.nanmedian(flx) / np.nanmedian(unc)
+            else: 
+                sigma_clip = sigma_clip
+            if kernel_size is None:
+                if np.round((len(wav) / 20.0)) % 2:
+                    kernel_size = int(np.round(len(wav) / 20.0))
+                else:
+                    kernel_size = int(np.round(len(wav) / 20.0)) + 1
+            else:
+                kernel_size = 3
+            flx_std = np.std(flx - scipy.signal.medfilt(flx, kernel_size=kernel_size))
+            # remove sigma outliers
+            if flag_plot:
+                plt.plot(wav, flx, alpha=0.5, label="orig")
+            sigma_arr = (np.abs(flx - scipy.signal.medfilt(flx, kernel_size=kernel_size))) / flx_std
+            ind_outliers = np.where(sigma_arr > sigma_reject)
+            ind = np.where(sigma_arr < sigma_reject)
+            flx[ind_outliers] = np.interp(wav[ind_outliers], wav[ind], flx[ind])
+            if flag_plot:
+                print("sigma_reject = ", sigma_reject)
+                print("min and max of flux:", np.min(flx), np.max(flx))
+                print("flx_std = ", flx_std)
+                plt.errorbar(wav, flx, yerr=unc, label="spec")
+                plt.plot(wav, scipy.signal.medfilt(flx, kernel_size=kernel_size), label="med")
+                plt.plot(wav[ind_outliers], flx[ind_outliers], "o", label="outliers")
+                plt.legend()
+                plt.show()
+            # remove uncertainty outliers
+            if flag_plot:
+                plt.plot(wav, flx, alpha=0.5, label="orig")
+            spec = self.getCrossValidateSpectrum()
+            sigma_arr = (np.abs(flx - spec.flux)) / unc
+            ind_outliers = np.where(sigma_arr > sigma_clip)
+            ind = np.where(sigma_arr < sigma_clip)
+            flx[ind_outliers] = np.interp(wav[ind_outliers], wav[ind], flx[ind])
+            if flag_plot:
+                print("sigma_clip = ", sigma_clip)
+                print("min and max of flux:", np.min(flx), np.max(flx))
+                plt.errorbar(wav, flx, yerr=unc, label="spec")
+                plt.plot(wav, spec.flux, label="remove one")
+                plt.plot(wav[ind_outliers], flx[ind_outliers], "o", label="outliers")
+                plt.legend()
+                plt.show()
+            self.flux = flx
+            return(self) 
+        else:
+            print("Need to have noise attribute to remove outliers")
+            return(self)
+
+    def getCrossValidateSpectrum(self):
+        flx = self.flux
+        wav = self.wavelength
+        spec = self.copy()
+        for i in np.arange(len(wav)):
+            ind = np.where(wav != wav[i])
+            spec.flux[i] = np.interp(spec.wavelength[i], wav[ind], flx[ind])
+        return(spec)
+
     def simSpeckleNoise(self, wav_min, wav_max, wav_int, wav_new):
         wav = np.arange(wav_min, wav_max + wav_int / 10.0, wav_int)
         wav_arr = np.array([])
@@ -216,21 +280,28 @@ class Spectrum():
         flx_new[idx] = 0.1
         return(flx_new)
 
-    def generateNoisySpec(self, speckle_noise=False):
+    def generateNoisySpec(self, speckle_noise=False, star_flux=1e0):
         spec = self.copy()
         flx = self.flux
         flx_new = np.zeros(np.shape(flx))
         num = len(flx)
         i = 0
-        while i < num:
-            #flx_new[i] = np.max([np.random.poisson(np.round(flx[i]), 1)+0.0, np.random.normal(flx[i], self.noise[i], 1)])
-            flx_new[i] = np.random.normal(flx[i], self.noise[i], 1)
-            i = i + 1
+        if hasattr(flx[0], 'value'):
+            while i < num:
+                #flx_new[i] = np.max([np.random.poisson(np.round(flx[i]), 1)+0.0, np.random.normal(flx[i], self.noise[i], 1)])
+                flx_new[i] = np.random.normal(flx[i].value, self.noise[i].value, 1)
+                i = i + 1
+        else:
+            while i < num:
+                #flx_new[i] = np.max([np.random.poisson(np.round(flx[i]), 1)+0.0, np.random.normal(flx[i], self.noise[i], 1)])
+                flx_new[i] = np.random.normal(flx[i], self.noise[i], 1)
+                i = i + 1
         spec.flux = flx_new
 
         if speckle_noise:
             flx_speckle = self.simSpeckleNoise(np.min(spec.wavelength), np.max(spec.wavelength), 0.1, spec.wavelength)
-            spec.flux = spec.flux * flx_speckle
+            #spec.flux = spec.flux * flx_speckle
+            spec.flux = spec.flux + flx_speckle * star_flux
 
         return(spec)
 
@@ -247,26 +318,57 @@ class Spectrum():
 
         return(self)
 
-    def applyHighPassFilter(self, order = 5, cutoff = 100.0):
-        # cutoff is number of sampling per 1 micron, so 100 means 0.01 micron resolution, about R = 100 at 1 micron
-        x = self.wavelength
-        y = self.flux
-        n = self.noise
-        fs = 1.0 / np.median(x[1:-1] - x[0:-2])
-        nyq = 0.5 * fs
-        normal_cutoff = cutoff / nyq
-        b, a = scipy.signal.butter(order, normal_cutoff, btype='high', analog=False)
-        yy = scipy.signal.filtfilt(b, a, y)
-        spec = Spectrum(x, yy, spec_reso=self.spec_reso)
-        if np.size(n) > 1:
-            spec.addNoise(n)
-        return(spec)
+    def applyHighPassFilter(self, order = 5, cutoff = 100.0, pass_type="high", fourier_flag=False, plot_flag=False):
+        if not fourier_flag:
+            # cutoff is number of sampling per 1 micron, so 100 means 0.01 micron resolution, about R = 100 at 1 micron
+            x = self.wavelength
+            y = self.flux
+            n = self.noise
+            fs = 1.0 / np.median(x[1:-1] - x[0:-2])
+            nyq = 0.5 * fs
+            normal_cutoff = cutoff / nyq
+            #print("normal_cutoff = ", normal_cutoff)
+            b, a = scipy.signal.butter(order, normal_cutoff, btype=pass_type, analog=False)
+            yy = scipy.signal.filtfilt(b, a, y)
+            spec = Spectrum(x, yy, spec_reso=self.spec_reso)
+            if n is not None:
+                spec.addNoise(n)
+            return(spec)
+        else:
+            x = self.wavelength
+            y = self.flux
+            n = self.noise
+            fy = fp.fft(y)
+            fy = fp.fftshift(fy)
+            delta_x = np.median(np.abs(np.diff(x)))
+            N = len(x)
+            fx = np.linspace(-0.5 / delta_x, 0.5 / delta_x - 0.5 / delta_x / N, num=N)
+            if plot_flag:
+                plt.plot(fx, np.abs(fy))
+                plt.yscale("log")
+            delta_x = np.median(np.abs(np.diff(x)))
+            if pass_type == "high":
+                filter_envelope = 1.0 - 1.0 * np.exp(-1.0 * fx**2 / (2.0 * cutoff**2))
+            else:
+                filter_envelope = 1.0 * np.exp(-1.0 * fx**2 / (2.0 * cutoff**2))
+            if plot_flag:
+                plt.plot(fx, filter_envelope * np.max(fy))
+                plt.show()
+            ffy = fp.ifft(fp.ifftshift(fy* filter_envelope))
+            if plot_flag:
+                plt.plot(x,y)
+                plt.plot(x, ffy)
+                plt.show()
+            spec = Spectrum(x, ffy, spec_reso=self.spec_reso)
+            if n is not None:
+                spec.addNoise(n)
+            return(spec)
 
     def copy(self):
         # make a copy of a spectrum object
         spectrum_new = Spectrum(self.wavelength.copy(), self.flux.copy(), spec_reso=self.spec_reso)
         if np.size(self.noise) > 1:
-            spectrum_new.noise = self.noise
+            spectrum_new.noise = self.noise.copy()
         return(spectrum_new)
 
     def pltSpec(self, noise_flag=False, **kwargs):
@@ -502,9 +604,10 @@ class Spectrum():
 
         # get optimized parameters for GP
         epsilon = 1e-9
-        pars_best = self.optimizeDirectGP(v, epsilon, nLambda, WTAInvW, P, Q, logA, variance=variance, pars=pars)
         if fix_flag:
             pars_best = pars_best_fixed
+        else:
+            pars_best = self.optimizeDirectGP(v, epsilon, nLambda, WTAInvW, P, Q, logA, variance=variance, pars=pars)
             print(pars_best)
 
         # get covariance matrix for GP
@@ -871,6 +974,7 @@ class Spectrum():
                     flx[i] = np.mean(self.flux[i*pixel_to_sum:(i+1)*pixel_to_sum])
                 self.wavelength = wav
                 self.flux = flx
+        self.spec_reso = rpower
         return self
 
     def rotational_blur(self, rot_vel=3e4):
@@ -952,6 +1056,12 @@ class CrossCorrelationFunction():
         self.ccf = ccf
         self.un = un
 
+    def getCCFchunk(self, vmin=-1e9, vmax=1e9):
+        cc = self.ccf
+        vel = self.vel
+        idx = np.where((vel < vmax) & (vel > vmin))
+        return(CrossCorrelationFunction(vel[idx], cc[idx]))
+
     def addNoise(self, un):
         if self.un is None:
             self.un = un
@@ -1013,7 +1123,7 @@ class CrossCorrelationFunction():
             print("Please choose an approriate method: CenterMass or PolyFit.")
         return centroid
 
-    def calcSNRrms(self):
+    def calcSNRrms(self, peak=None):
         cc = self.ccf
 
         # 
@@ -1030,6 +1140,19 @@ class CrossCorrelationFunction():
         else:
             ind_rms = [-int(num / 4.0), -1]
         snr = cc[ind_max] / np.std(cc[ind_rms[0]:ind_rms[1]])
+        if not (peak is None):
+            snr = peak / np.std(cc[ind_rms[0]:ind_rms[1]])
+        return(snr)
+
+    def calcSNRrmsNoiseless(self, ccf_noise_less, peak=None):
+        cc = self.ccf
+        cc_subtracted = cc - ccf_noise_less.ccf
+             
+        ind_max = np.argmax(cc)
+        num = len(cc)                
+        snr = np.max([cc[ind_max] / np.std(cc_subtracted[0:int(num / 4.0)]), cc[ind_max] / np.std(cc_subtracted[-int(num / 4.0):-1])])                                 
+        if not (peak is None):                           
+            snr = np.max([peak / np.std(cc_subtracted[0:int(num / 4.0)]), peak / np.std(cc_subtracted[-int(num / 4.0):-1])])                                                               
         return(snr)
 
     def calcSNRnoiseLess(self, ccf_noise_less):
@@ -1458,9 +1581,10 @@ class AB_Pattern(FitsImage2d):
         y_max = np.max(y_cut)
         ind = np.where(y_cut < y_max / 10.0)
         if not flag_sum:
+            y_cut[:] = 1.0
             y_cut[ind] = 0.0
             flx = np.dot(np.transpose(self.im_data), y_cut) 
-            flx = flx / np.median(flx) * np.sum(y_cut)
+            #flx = flx / np.median(flx) * np.sum(y_cut)
         else:
             y_cut[:] = 1.0
             y_cut[ind] = 0.0 
@@ -1490,9 +1614,10 @@ class AB_Pattern(FitsImage2d):
         y_min = np.min(y_cut)
         ind = np.where(y_cut > y_min / 10.0)
         if not flag_sum:
+            y_cut[:] = 1.0
             y_cut[ind] = 0.0
             flx = np.dot(np.transpose(self.im_data), y_cut) 
-            flx = flx / np.median(flx) * np.sum(y_cut)
+            #flx = flx / np.median(flx) * np.sum(y_cut)
         else:
             y_cut[:] = 1.0
             y_cut[ind] = 0.0 
@@ -2156,7 +2281,7 @@ class RossiterMcLaughlinEffect():
         self.massRatio = mass_ratio
         self.u1 = u1 # limb darkening 1
         self.u2 = u2 # limb darkening 2
-        self.lambda0 = lambda0 # central wavelength in um
+        self.lambda0 = lambda0 # central wavelength in um, make sure lambda0 corresponds to the center of lsf
         self.lsf = lsf # line spread function of the instrument, should be Specrum class
     
     def intersection_area(self, t):
@@ -2206,8 +2331,9 @@ class RossiterMcLaughlinEffect():
             plt.show()
         plt.clf()
 
-    def makeIllustrationVideo(self, t_int=0.4):
-        t_arr = np.arange(0.1,self.t0,t_int)
+    def makeIllustrationVideo(self, t_arr=None, t_int=0.4):
+        if t_arr is None:
+            t_arr = np.arange(0.1,self.t0,t_int)
         for t in t_arr:
             self.makeIllustrationFigure(t, flag_sav=True, flag_show=False)
         import imageio, glob
@@ -2495,10 +2621,11 @@ class RossiterMcLaughlinEffect():
             plt.show()
             plt.clf()
         if flag_video:
-            self.makeIllustrationVideo(t_int=t_int)
+            self.makeIllustrationVideo(t_arr=t_arr)
         return([t_arr, v_arr])
 
     def createLineProfile(self, vsini=None, u1=1.0, u2=0.0, lambda_0=2.0, flag_plot=False):
+        lambda_0 = self.lambda0
         spec_lsf = self.lsf
         # lsf is instrument profile or line spread function
         if vsini is None:
@@ -2517,6 +2644,7 @@ class RossiterMcLaughlinEffect():
 
     def createRMLineProfile(self, t, v_min, v_max, u1=1.0, u2=0.0, lambda_0=2.0, flag_plot=False):
         spec_lsf = self.lsf
+        lambda_0=self.lambda0
         if not self.self_luminous:
             f = self.calcBlockedFlux(t, v_min, v_max, u1=u1, u2=u2)
             dvdt = self.calcRVChangeRateDuringEclipse(Msini=self.msini, P=self.orbitalPeriod, Mtotal=self.mtotal, e=self.eccentricity, om=self.argumentOfPeriastron, tp=self.timeAtPeriastron, tint=1e-3)
@@ -2617,7 +2745,10 @@ class RossiterMcLaughlinEffect():
             lp_rm = self.createRMLineProfile(t_arr[i], v_arr[i,0], v_arr[i,1], u1=self.u1, u2=self.u2, lambda_0=self.lambda0, flag_plot=False)
             lp_arr.append(lp_rm)
             if flag_plot:
-                plt.plot(lp_rm.wavelength, lp_rm.flux + i * 0.005, label="{0:03.0f}".format(i))
+                if i != 1e6:
+                    plt.plot(lp_rm.wavelength, lp_rm.flux + i * 0.008, lw=3, alpha=0.5, label="{0:03.0f}".format(i))
+                else:
+                    plt.plot(lp_rm.wavelength - 3e3, lp_rm.flux + i * 0.006, lw=3, alpha=0.5, label="{0:03.0f}".format(i))
             if flag_save:
                 file_name = "spec_{0:03.0f}.txt".format(i)
                 lp_rm.writeSpec(file_name=file_name)
