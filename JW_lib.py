@@ -392,11 +392,11 @@ class Spectrum():
         flx = self.flux / spec_total_flux * total_flux
         self.flux = flx
 
-    def resampleSpec(self, wav_new):
+    def resampleSpec(self, wav_new, **kwargs):
         # resample a spectrum to a new wavelength grid
-        flx_new = np.interp(wav_new, self.wavelength, self.flux)
+        flx_new = np.interp(wav_new, self.wavelength, self.flux, **kwargs)
         if np.size(self.noise) != 1:
-            noise_new = np.interp(wav_new, self.wavelength, self.noise)
+            noise_new = np.interp(wav_new, self.wavelength, self.noise, left=1e9, right=1e9)
             self.noise = noise_new
         self.wavelength = wav_new
         self.flux = flx_new
@@ -1049,6 +1049,32 @@ class Spectrum():
         p = np.poly1d(coeffs)
         cont = p(x)
         return(cont)
+
+    def calcQFactor(self, sigma_readout = 10.0, plot_flag=False):
+        wav = self.wavelength
+        flx = self.flux
+        # based on Bouchy et al. 2001: http://www.aanda.org/articles/aa/pdf/2001/29/aa1316.pdf
+        #sigma_readout = 10.0 # in electrons 
+        idx = np.argsort(wav)
+        wav = wav[idx]
+        flx = flx[idx]
+        wav_delta = wav[1:] - wav[0:-1]
+        flx_delta = flx[1:] - flx[0:-1]
+        d_flx_d_wav = flx_delta / wav_delta
+        W_arr = (wav[1:]**2 * d_flx_d_wav**2) / (flx[1:] + sigma_readout**2)
+        A_arr = flx[1:]
+        
+        num = len(W_arr)
+        idx = np.argsort(W_arr)
+        W_arr = W_arr[idx][0:int(num*0.997)]
+        A_arr = A_arr[idx][0:int(num*0.997)]
+        
+        W = np.sum(W_arr)
+        A = np.sum(A_arr)
+        if plot_flag:
+            plt.hist((wav[1:]**2 * d_flx_d_wav**2) / (flx[1:] + sigma_readout**2), bins=2000)
+        Q = np.sqrt(W / A)
+        return(Q)
 
 class CrossCorrelationFunction():
     def __init__(self, vel, ccf, un = None):
@@ -2738,7 +2764,7 @@ class RossiterMcLaughlinEffect():
         mu = np.cos(np.arcsin(np.abs(v_mean) / self.vrot))
         return(1 - u1 * (1 - mu) - u2 * (1 - mu)**2)
 
-    def calcLPSeries(self, t_arr=None, flag_plot=True, flag_save=True):
+    def calcLPSeries(self, t_arr=None, flag_plot=True, flag_save=True, vel_grid=None):
         t_arr, v_arr = self.calcRMSeries(t_arr=t_arr, flag_video=False, flag_plot=flag_plot)   
         lp_arr = [] 
         for i in np.arange(len(t_arr)): 
@@ -2751,6 +2777,8 @@ class RossiterMcLaughlinEffect():
                     plt.plot(lp_rm.wavelength - 3e3, lp_rm.flux + i * 0.006, lw=3, alpha=0.5, label="{0:03.0f}".format(i))
             if flag_save:
                 file_name = "spec_{0:03.0f}.txt".format(i)
+                if vel_grid is not None:
+                    lp_rm.resampleSpec(vel_grid, left=0.0, right=0.0)
                 lp_rm.writeSpec(file_name=file_name)
         if flag_plot:
             plt.legend()
