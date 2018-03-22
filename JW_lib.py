@@ -2289,6 +2289,8 @@ class Pynirspec_spec1D():
 class RossiterMcLaughlinEffect():
     def __init__(self, self_luminous=False, b=0.0, t0=4.0, vrot=10e3, oblqt=45.0, R=1.0, r=0.5, f12=0.8, vrot2=20e3, P=1.0, Mtotal=1.0, e=0.3, om=60, tp=0.2, mass_ratio=0.01, u1=1.0, u2=0.0, lambda0=2.0, lsf=None):
         self.b = b # impact parameter
+        if self.b == 0.0:
+            self.b = 1e-6
         self.t0 = t0 # transit duration in hours
         self.vrot = vrot # primary rotational velocity in m/s
         self.oblqt = oblqt / 180.0 * np.pi # the angle (in deg) between orbital angular momentum axis and spin axis of the primary
@@ -2296,7 +2298,7 @@ class RossiterMcLaughlinEffect():
         self.R = R # primary radius in unity
         self.r = r # secondary radius in fraction of the primary
         self.self_luminous = self_luminous # whether the secondary is self luminous, if True, then SB, if False, then planet. 
-        self.f12 = f12 # flux ratio between primary and secondary out of eclipse
+        self.f12 = f12 # flux ratio between primary and secondary out of eclipse,i.e. < 1
         self.vrot2 = vrot2 # rotational velocity of the secondary
         self.msini = Mtotal / (1.0 + (1.0 / mass_ratio)) / 0.0009543 # companion mass in Jupiter mass, 0.0009543 is jupiter mass in solar mass
         self.orbitalPeriod = P # orbital period in days
@@ -2769,6 +2771,8 @@ class RossiterMcLaughlinEffect():
         lp_arr = [] 
         for i in np.arange(len(t_arr)): 
             lp_rm = self.createRMLineProfile(t_arr[i], v_arr[i,0], v_arr[i,1], u1=self.u1, u2=self.u2, lambda_0=self.lambda0, flag_plot=False)
+            if vel_grid is not None:
+                lp_rm.resampleSpec(vel_grid, left=0.0, right=0.0)
             lp_arr.append(lp_rm)
             if flag_plot:
                 if i != 1e6:
@@ -2777,8 +2781,29 @@ class RossiterMcLaughlinEffect():
                     plt.plot(lp_rm.wavelength - 3e3, lp_rm.flux + i * 0.006, lw=3, alpha=0.5, label="{0:03.0f}".format(i))
             if flag_save:
                 file_name = "spec_{0:03.0f}.txt".format(i)
-                if vel_grid is not None:
-                    lp_rm.resampleSpec(vel_grid, left=0.0, right=0.0)
+                lp_rm.writeSpec(file_name=file_name)
+        if flag_plot:
+            plt.legend()
+            plt.show()
+        return(lp_arr)
+
+    def calcLPSeries_MCMC(self, t_arr=None, flag_plot=False, flag_save=False, vel_grid=None):
+        t_arr, v_arr = self.calcRMSeries(t_arr=t_arr, flag_video=False, flag_plot=flag_plot)
+        lp_arr = []
+        for i in np.arange(len(t_arr)):
+            lp_rm = self.createRMLineProfile(t_arr[i], v_arr[i,0], v_arr[i,1], u1=self.u1, u2=self.u2, lambda_0=self.lambda0, flag_plot=False)
+            if vel_grid is not None:
+                lp_rm.resampleSpec(vel_grid, left=0.0, right=0.0)
+            if i == 0:
+                lp_arr = np.zeros((len(t_arr), len(lp_rm.flux)))
+            lp_arr[i,:] = lp_rm.flux
+            if flag_plot:
+                if i != 1e6:
+                    plt.plot(lp_rm.wavelength, lp_rm.flux + i * 0.008, lw=3, alpha=0.5, label="{0:03.0f}".format(i))
+                else:
+                    plt.plot(lp_rm.wavelength - 3e3, lp_rm.flux + i * 0.006, lw=3, alpha=0.5, label="{0:03.0f}".format(i))
+            if flag_save:
+                file_name = "spec_{0:03.0f}.txt".format(i)
                 lp_rm.writeSpec(file_name=file_name)
         if flag_plot:
             plt.legend()
