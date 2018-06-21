@@ -864,7 +864,8 @@ class Spectrum():
         #positive number means blue shift and vice versa
         beta = rv_shift / scipy.constants.c
         wav_shifted = self.wavelength * np.sqrt((1 - beta)/(1 + beta))
-        flx = np.interp(self.wavelength, wav_shifted, self.flux, left=np.nanmedian(self.flux), right=np.nanmedian(self.flux))
+        #flx = np.interp(self.wavelength, wav_shifted, self.flux, left=np.nanmedian(self.flux), right=np.nanmedian(self.flux))
+        flx = np.interp(self.wavelength, wav_shifted, self.flux, left=self.flux[0], right=self.flux[-1])
         flx[np.isnan(flx)] = np.nanmedian(flx)
         self.flux = flx
         return self
@@ -2302,7 +2303,7 @@ class RossiterMcLaughlinEffect():
         self.vrot2 = vrot2 # rotational velocity of the secondary
         self.msini = Mtotal / (1.0 + (1.0 / mass_ratio)) / 0.0009543 # companion mass in Jupiter mass, 0.0009543 is jupiter mass in solar mass
         self.orbitalPeriod = P # orbital period in days
-        self.mtotal = 1.0 # total mass in solar mass
+        self.mtotal = Mtotal # total mass in solar mass
         self.eccentricity = e # eccentricity
         self.argumentOfPeriastron = om # argument of periastron in degree
         self.timeAtPeriastron = tp # time at periastron in days 
@@ -2675,33 +2676,44 @@ class RossiterMcLaughlinEffect():
         lambda_0=self.lambda0
         if not self.self_luminous:
             f = self.calcBlockedFlux(t, v_min, v_max, u1=u1, u2=u2)
-            dvdt = self.calcRVChangeRateDuringEclipse(Msini=self.msini, P=self.orbitalPeriod, Mtotal=self.mtotal, e=self.eccentricity, om=self.argumentOfPeriastron, tp=self.timeAtPeriastron, tint=1e-3)
+            #rv_t1, dvdt = self.calcRVChangeRateDuringEclipse(Msini=self.msini, P=self.orbitalPeriod, Mtotal=self.mtotal, e=self.eccentricity, om=self.argumentOfPeriastron, tp=self.timeAtPeriastron, tint=1e-3, flag_plot=False) # zero crossing is not necessarily where ecplise takes place, so this is wrong, should just use t - self.t0 / 2.0 to calculate rv
             lp_s = self.createLineProfile(vsini=None, u1=u1, u2=u2, lambda_0=lambda_0, flag_plot=flag_plot)
-            dv_s = dvdt * (t - self.t0 / 2.0)
-            dv_p = -dv_s / self.massRatio
+            if 1 == 0: # incorrect, discard
+                dv_s = rv_t1 + dvdt * (t - self.t0 / 2.0)
+                dv_p = -dv_s / self.massRatio
+            else:
+                dv_s = self.calcRVatAtime(Msini=self.msini, P=self.orbitalPeriod, Mtotal=self.mtotal, e=self.eccentricity, om=self.argumentOfPeriastron, tp=self.timeAtPeriastron, _t=np.array([t-self.t0/2.0])/24.0)
+                dv_p = -dv_s / self.massRatio 
             lp_s.dopplerShift(rv_shift=-dv_s) 
-            lp_p = self.createLineProfile(vsini=(v_max-v_min)/2.0, u1=u1, u2=u2, lambda_0=lambda_0, flag_plot=flag_plot)
+            lp_p = self.createLineProfile(vsini=(v_max-v_min)/2.0-dv_s, u1=u1, u2=u2, lambda_0=lambda_0, flag_plot=flag_plot)
             lp_p.dopplerShift(rv_shift=-(v_max+v_min)/2.0).resampleSpec(lp_s.wavelength)
             lp_rm = lp_s.copy()
             lp_rm.flux = lp_s.flux - f * lp_p.flux
             lp_rm.flux = lp_rm.flux / np.sum(lp_rm.flux)
             if flag_plot:
-                plt.plot(lp_s.converWavelengthtoVelocity(lp_s.wavelength), lp_s.flux, "b-")
-                plt.plot(lp_p.converWavelengthtoVelocity(lp_p.wavelength), lp_p.flux * f, "r-")
-                plt.plot(lp_rm.converWavelengthtoVelocity(lp_rm.wavelength), lp_rm.flux, "k-")
+                plt.plot(lp_s.converWavelengthtoVelocity(lp_s.wavelength), lp_s.flux, "b-", label="1")
+                plt.plot(lp_p.converWavelengthtoVelocity(lp_p.wavelength), lp_p.flux * f, "r-", label="2")
+                plt.plot(lp_rm.converWavelengthtoVelocity(lp_rm.wavelength), lp_rm.flux, "k-", label="f")
+                plt.legend()
                 plt.show()
         else:
             f = self.calcBlockedFlux(t, v_min, v_max, u1=u1, u2=u2)
-            dvdt = self.calcRVChangeRateDuringEclipse(Msini=self.msini, P=self.orbitalPeriod, Mtotal=self.mtotal, e=self.eccentricity, om=self.argumentOfPeriastron, tp=self.timeAtPeriastron, tint=1e-3)
+            #rv_t1, dvdt = self.calcRVChangeRateDuringEclipse(Msini=self.msini, P=self.orbitalPeriod, Mtotal=self.mtotal, e=self.eccentricity, om=self.argumentOfPeriastron, tp=self.timeAtPeriastron, tint=1e-3, flag_plot=True) # zero crossing is not necessarily where ecplise takes place, so this is wrong, should just use t - self.t0 / 2.0 to calculate rv
             lp_s = self.createLineProfile(vsini=None, u1=u1, u2=u2, lambda_0=lambda_0, flag_plot=flag_plot)
-            dv_s = dvdt * (t - self.t0 / 2.0)
-            dv_p = -dv_s / self.massRatio
+            if 1 == 0: # incorrect, discard
+                dv_s = rv_t1 + dvdt * (t - self.t0 / 2.0)
+                dv_p = -dv_s / self.massRatio
+            else:
+                dv_s = self.calcRVatAtime(Msini=self.msini, P=self.orbitalPeriod, Mtotal=self.mtotal, e=self.eccentricity, om=self.argumentOfPeriastron, tp=self.timeAtPeriastron, _t=np.array([t-self.t0/2.0])/24.0)
+                dv_p = -dv_s / self.massRatio
+            #print("delta v = ", dv_p - dv_s)
             lp_s.dopplerShift(rv_shift=-dv_s) 
             lp_p = self.createLineProfile(vsini=(v_max-v_min)/2.0, u1=u1, u2=u2, lambda_0=lambda_0, flag_plot=flag_plot)
-            lp_p.dopplerShift(rv_shift=-(v_max+v_min)/2.0).resampleSpec(lp_s.wavelength)
+            lp_p.dopplerShift(rv_shift=-(v_max+v_min)/2.0-dv_s).resampleSpec(lp_s.wavelength)
             lp_rm = lp_s.copy()
             # primary star line profile when being eclipsed
             lp_rm.flux = lp_s.flux - f * lp_p.flux
+            lp_1_rm = lp_rm.copy()
             # secondary star line profile, assuming the same limb darkening coefficient
             lp_2 = self.createLineProfile(vsini=self.vrot2, u1=u1, u2=u2, lambda_0=lambda_0, flag_plot=flag_plot)
             lp_2.dopplerShift(rv_shift=-dv_p).resampleSpec(lp_s.wavelength)
@@ -2709,14 +2721,38 @@ class RossiterMcLaughlinEffect():
             lp_rm.flux = lp_rm.flux + self.f12 * lp_2.flux
             # normalization
             lp_rm.flux = lp_rm.flux / np.sum(lp_rm.flux)
-            if flag_plot:
-                plt.plot(lp_s.converWavelengthtoVelocity(lp_s.wavelength), lp_s.flux, "b-")
-                plt.plot(lp_p.converWavelengthtoVelocity(lp_p.wavelength), lp_p.flux * f, "r-")
-                plt.plot(lp_2.converWavelengthtoVelocity(lp_2.wavelength), lp_2.flux * self.f12, color="orange")
-                plt.plot(lp_rm.converWavelengthtoVelocity(lp_rm.wavelength), lp_rm.flux, "k-")
-                plt.show()   
+            #if flag_plot:
+            if True:
+                plt.plot(lp_s.converWavelengthtoVelocity(lp_s.wavelength), lp_s.flux, "b-", label="1")
+                plt.plot(lp_p.converWavelengthtoVelocity(lp_p.wavelength), lp_p.flux * f, "r-", label="blocked")
+                plt.plot(lp_2.converWavelengthtoVelocity(lp_2.wavelength), lp_2.flux * self.f12, color="orange", label="2")
+                plt.plot(lp_rm.converWavelengthtoVelocity(lp_rm.wavelength), lp_rm.flux, "k-", label="f")
+                plt.legend()
+                plt.show()  
+                lp_s.writeSpec(file_name="lp_s.dat") 
+                lp_p.writeSpec(file_name="lp_p.dat") 
+                lp_2.writeSpec(file_name="lp_2.dat")
+                lp_rm.writeSpec(file_name="lp_rm.dat") 
+                lp_1_rm.writeSpec(file_name="lp_1_rm.dat") 
+
         lp_rm.wavelength = lp_rm.converWavelengthtoVelocity(lp_rm.wavelength)         
         return(lp_rm)
+
+    def calcRVatAtime(self, Msini=1.0, P=1.0, Mtotal=1.0, e=0.0, om=90.0, tp=0.0, _t=0.0):
+        K = semi_amplitude(Msini, P, Mtotal, e, Msini_units='jupiter')
+        """
+        :param Msini: mass of planet [Mjup]
+        :param P: Orbital period [days]
+        :param Mtotal: Mass of star + mass of planet [Msun]
+        :param e: eccentricity
+        :param om: in degree
+        :param tp: in days
+        :param tint in days
+        """
+        K = semi_amplitude(Msini, P, Mtotal, e, Msini_units='jupiter')
+        RV = RadialVelocity([P, tp, e, om, K])
+        _rv = RV.rv_drive(_t)
+        return(_rv)
 
     def calcRVChangeRateDuringEclipse(self, Msini=1.0, P=1.0, Mtotal=1.0, e=0.0, om=90.0, tp=0.0, tint=1e-2, flag_plot=False):
         K = semi_amplitude(Msini, P, Mtotal, e, Msini_units='jupiter')
@@ -2738,7 +2774,7 @@ class RossiterMcLaughlinEffect():
         t1 = self.fingZeroCrossing(t_arr, v_arr)
         dvdt = (RV.rv_drive(np.array([t1+tint])) - RV.rv_drive(np.array([t1-tint]))) / (2.0 * tint)
         if dvdt < 0.0:
-            return(dvdt / 24.0) # dvdt was m/s/day, now is at m/s/hour
+            return(RV.rv_drive(np.array([t1])), dvdt / 24.0) # dvdt was m/s/day, now is at m/s/hour
         else:
             t_arr = np.arange(t1+0.1*P, t1+0.8*P+0.1*P, tint)
             v_arr = RV.rv_drive(t_arr)
@@ -2747,7 +2783,7 @@ class RossiterMcLaughlinEffect():
                 plt.show()
             t2 = self.fingZeroCrossing(t_arr, v_arr)
             dvdt = (RV.rv_drive(np.array([t2+tint])) - RV.rv_drive(np.array([t2-tint]))) / (2.0 * tint)
-            return(dvdt / 24.0) # dvdt was m/s/day, now is at m/s/hour
+            return(RV.rv_drive(np.array([t2])), dvdt / 24.0) # dvdt was m/s/day, now is at m/s/hour
 
     def fingZeroCrossing(self, t_arr, v_arr):
         ind = np.where(np.abs(v_arr) == np.min(np.abs(v_arr)))[0][0]
